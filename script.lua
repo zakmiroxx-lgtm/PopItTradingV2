@@ -1,21 +1,21 @@
 --[[
-    POP IT TRADING
-    ITEM BUYER V2
+    POP IT TRADING | ITEM BUYER V2.1
 
-    Game ID: 7346416636
+    Game: Pop It Trading
+    PlaceId: 7346416636
 
     Features:
-    - Dark GUI
-    - Item Search
+    - Dark Mode
     - Item Scanner
+    - Search
     - Item Selection
+    - Price Detection
     - Buy Button
     - Auto Buy
-    - Auto Buy Delay
     - Refresh
-    - Notifications
     - Mobile Support
-    - PC Support
+    - Dragging
+    - Notifications
 ]]
 
 --------------------------------------------------
@@ -31,62 +31,59 @@ local Player = Players.LocalPlayer
 local PlayerGui = Player:WaitForChild("PlayerGui")
 
 --------------------------------------------------
--- GAME CHECK
---------------------------------------------------
-
-local GAME_ID = 7346416636
-
-if game.PlaceId ~= GAME_ID then
-    warn("Pop It Trading V2: Unsupported place")
-    return
-end
-
---------------------------------------------------
 -- CONFIG
 --------------------------------------------------
 
 local Config = {
+    GameId = 7346416636,
     AutoBuyDelay = 2,
-    MinBuyDelay = 1,
-    MaxBuyDelay = 10
+    MinDelay = 1,
+    MaxDelay = 10
 }
+
+--------------------------------------------------
+-- GAME CHECK
+--------------------------------------------------
+
+if game.PlaceId ~= Config.GameId then
+    warn("[POP IT BUYER] Wrong game!")
+    return
+end
+
+--------------------------------------------------
+-- CLEANUP
+--------------------------------------------------
+
+local Environment = getgenv and getgenv()
+
+if Environment and Environment.PopItBuyerStop then
+    Environment.PopItBuyerStop()
+end
+
+local OldGui = PlayerGui:FindFirstChild("PopItBuyerV21")
+
+if OldGui then
+    OldGui:Destroy()
+end
 
 --------------------------------------------------
 -- STATE
 --------------------------------------------------
 
+local Running = true
+local AutoBuy = false
+local Buying = false
+
 local Items = {}
 local Selected = nil
 
-local AutoBuy = false
-local Buying = false
-local Running = true
-
 local LastBuy = 0
 
---------------------------------------------------
--- CLEAN OLD GUI
---------------------------------------------------
-
-local Old = PlayerGui:FindFirstChild("PopItBuyerV2")
-
-if Old then
-    Old:Destroy()
-end
-
-local Env = getgenv and getgenv()
-
-if Env then
-
-    if Env.PopItBuyerV2Stop then
-        Env.PopItBuyerV2Stop()
-    end
-
-    Env.PopItBuyerV2Stop = function()
+if Environment then
+    Environment.PopItBuyerStop = function()
         Running = false
         AutoBuy = false
     end
-
 end
 
 --------------------------------------------------
@@ -94,26 +91,26 @@ end
 --------------------------------------------------
 
 local C = {
-    Background = Color3.fromRGB(17, 18, 26),
-    Panel = Color3.fromRGB(28, 30, 42),
-    Button = Color3.fromRGB(43, 46, 62),
+    BG = Color3.fromRGB(18, 19, 28),
+    Panel = Color3.fromRGB(29, 31, 44),
+    Button = Color3.fromRGB(43, 46, 63),
     Purple = Color3.fromRGB(135, 95, 255),
-    Green = Color3.fromRGB(45, 190, 120),
-    Red = Color3.fromRGB(230, 75, 90),
+    Green = Color3.fromRGB(50, 190, 120),
+    Red = Color3.fromRGB(225, 75, 90),
     White = Color3.fromRGB(245, 245, 255),
-    Gray = Color3.fromRGB(155, 155, 175)
+    Gray = Color3.fromRGB(160, 160, 180)
 }
 
 --------------------------------------------------
--- UTILITIES
+-- HELPERS
 --------------------------------------------------
 
 local function New(class, properties, parent)
 
     local object = Instance.new(class)
 
-    for k, v in pairs(properties) do
-        object[k] = v
+    for property, value in pairs(properties) do
+        object[property] = value
     end
 
     object.Parent = parent
@@ -136,8 +133,8 @@ local function Notify(title, text)
 
         StarterGui:SetCore("SendNotification", {
             Title = title,
-            Text = text,
-            Duration = 3
+            Text = tostring(text),
+            Duration = 4
         })
 
     end)
@@ -149,7 +146,7 @@ end
 --------------------------------------------------
 
 local Gui = New("ScreenGui", {
-    Name = "PopItBuyerV2",
+    Name = "PopItBuyerV21",
     ResetOnSpawn = false,
     IgnoreGuiInset = true,
     DisplayOrder = 999
@@ -158,7 +155,7 @@ local Gui = New("ScreenGui", {
 local Main = New("Frame", {
     Size = UDim2.fromOffset(380, 520),
     Position = UDim2.new(0.5, -190, 0.5, -260),
-    BackgroundColor3 = C.Background,
+    BackgroundColor3 = C.BG,
     BorderSizePixel = 0
 }, Gui)
 
@@ -219,12 +216,12 @@ local Header = New("Frame", {
 Round(Header, 14)
 
 New("TextLabel", {
-    Size = UDim2.new(1, -95, 1, 0),
+    Size = UDim2.new(1, -90, 1, 0),
     Position = UDim2.fromOffset(15, 0),
     BackgroundTransparency = 1,
-    Text = "POP IT | BUYER V2",
+    Text = "POP IT | BUYER V2.1",
     TextColor3 = C.White,
-    TextSize = 17,
+    TextSize = 16,
     Font = Enum.Font.GothamBold,
     TextXAlignment = Enum.TextXAlignment.Left
 }, Header)
@@ -259,17 +256,13 @@ local Open = New("TextButton", {
 Round(Open, 10)
 
 Close.MouseButton1Click:Connect(function()
-
     Main.Visible = false
     Open.Visible = true
-
 end)
 
 Open.MouseButton1Click:Connect(function()
-
     Main.Visible = true
     Open.Visible = false
-
 end)
 
 --------------------------------------------------
@@ -278,7 +271,7 @@ end)
 
 local Dragging = false
 local DragStart
-local StartPos
+local StartPosition
 local DragInput
 
 Header.InputBegan:Connect(function(input)
@@ -288,7 +281,7 @@ Header.InputBegan:Connect(function(input)
 
         Dragging = true
         DragStart = input.Position
-        StartPos = Main.Position
+        StartPosition = Main.Position
         DragInput = input
 
     end
@@ -309,10 +302,10 @@ UIS.InputChanged:Connect(function(input)
     local delta = input.Position - DragStart
 
     Main.Position = UDim2.new(
-        StartPos.X.Scale,
-        StartPos.X.Offset + delta.X,
-        StartPos.Y.Scale,
-        StartPos.Y.Offset + delta.Y
+        StartPosition.X.Scale,
+        StartPosition.X.Offset + delta.X,
+        StartPosition.Y.Scale,
+        StartPosition.Y.Offset + delta.Y
     )
 
 end)
@@ -350,7 +343,7 @@ Round(Search, 9)
 --------------------------------------------------
 
 local List = New("ScrollingFrame", {
-    Size = UDim2.new(1, -24, 0, 230),
+    Size = UDim2.new(1, -24, 0, 220),
     Position = UDim2.fromOffset(12, 112),
     BackgroundColor3 = C.Panel,
     BorderSizePixel = 0,
@@ -379,8 +372,8 @@ New("UIPadding", {
 --------------------------------------------------
 
 local SelectedText = New("TextLabel", {
-    Size = UDim2.new(1, -24, 0, 28),
-    Position = UDim2.fromOffset(12, 349),
+    Size = UDim2.new(1, -24, 0, 32),
+    Position = UDim2.fromOffset(12, 340),
     BackgroundTransparency = 1,
     Text = "Selected: None",
     TextColor3 = C.White,
@@ -396,7 +389,7 @@ local SelectedText = New("TextLabel", {
 
 local function Button(text, pos, size, color)
 
-    local b = New("TextButton", {
+    local button = New("TextButton", {
         Size = size,
         Position = pos,
         BackgroundColor3 = color,
@@ -407,9 +400,9 @@ local function Button(text, pos, size, color)
         BorderSizePixel = 0
     }, Main)
 
-    Round(b, 8)
+    Round(button, 8)
 
-    return b
+    return button
 
 end
 
@@ -419,79 +412,82 @@ end
 
 local BuyButton = Button(
     "BUY SELECTED ITEM",
-    UDim2.fromOffset(12, 385),
+    UDim2.fromOffset(12, 380),
     UDim2.new(1, -24, 0, 42),
     C.Green
 )
 
 local AutoButton = Button(
     "AUTO BUY: OFF",
-    UDim2.fromOffset(12, 435),
-    UDim2.new(0.48, 0, 0, 35),
+    UDim2.fromOffset(12, 430),
+    UDim2.new(0.48, 0, 0, 36),
     C.Button
 )
 
 local RefreshButton = Button(
     "REFRESH",
-    UDim2.new(0.52, 0, 0, 435),
-    UDim2.new(0.45, 0, 0, 35),
+    UDim2.new(0.52, 0, 0, 430),
+    UDim2.new(0.45, 0, 0, 36),
     C.Purple
 )
 
---------------------------------------------------
--- DELAY CONTROL
---------------------------------------------------
-
 local DelayButton = Button(
     "DELAY: 2s",
-    UDim2.fromOffset(12, 478),
-    UDim2.new(1, -24, 0, 30),
+    UDim2.fromOffset(12, 475),
+    UDim2.new(1, -24, 0, 32),
     C.Button
 )
 
-DelayButton.MouseButton1Click:Connect(function()
-
-    Config.AutoBuyDelay += 1
-
-    if Config.AutoBuyDelay > Config.MaxBuyDelay then
-        Config.AutoBuyDelay = Config.MinBuyDelay
-    end
-
-    DelayButton.Text =
-        "DELAY: " .. Config.AutoBuyDelay .. "s"
-
-end)
-
 --------------------------------------------------
--- PRICE READER
+-- IMPROVED PRICE DETECTION
 --------------------------------------------------
+
+local PriceNames = {
+    "Price",
+    "price",
+    "Cost",
+    "cost",
+    "Coins",
+    "Cash",
+    "Money",
+    "Amount",
+    "BuyPrice",
+    "PurchasePrice"
+}
 
 local function GetPrice(object)
 
-    local names = {
-        "Price",
-        "Cost",
-        "Cash",
-        "Coins"
-    }
+    -- Check attributes
 
-    for _, name in ipairs(names) do
+    for _, name in ipairs(PriceNames) do
 
-        local attribute = object:GetAttribute(name)
+        local value = object:GetAttribute(name)
 
-        if type(attribute) == "number"
-        and attribute >= 0 then
-            return attribute
+        if typeof(value) == "number"
+        and value >= 0 then
+            return value
         end
 
-        local value = object:FindFirstChild(name)
+    end
 
-        if value and (
-            value:IsA("IntValue")
-            or value:IsA("NumberValue")
-        ) then
+    -- Check descendants
 
-            return value.Value
+    for _, child in ipairs(object:GetDescendants()) do
+
+        for _, name in ipairs(PriceNames) do
+
+            if child.Name == name then
+
+                if child:IsA("NumberValue")
+                or child:IsA("IntValue") then
+
+                    if child.Value >= 0 then
+                        return child.Value
+                    end
+
+                end
+
+            end
 
         end
 
@@ -545,9 +541,7 @@ local function ScanItems()
     end
 
     table.sort(found, function(a, b)
-
         return a.Name:lower() < b.Name:lower()
-
     end)
 
     return found
@@ -580,17 +574,16 @@ Render = function()
 
             count += 1
 
-            local price = item.Price
+            local priceText = item.Price ~= nil
                 and tostring(item.Price)
-                or "Unknown"
+                or "Price N/A"
 
-            local b = New("TextButton", {
+            local button = New("TextButton", {
                 Size = UDim2.new(1, -2, 0, 37),
                 BackgroundColor3 =
                     Selected == item and C.Purple
                     or C.Button,
-
-                Text = "  " .. item.Name .. " | " .. price,
+                Text = "  " .. item.Name .. " | " .. priceText,
                 TextColor3 = C.White,
                 TextSize = 13,
                 Font = Enum.Font.Gotham,
@@ -599,15 +592,15 @@ Render = function()
                 BorderSizePixel = 0
             }, List)
 
-            Round(b, 7)
+            Round(button, 7)
 
-            b.MouseButton1Click:Connect(function()
+            button.MouseButton1Click:Connect(function()
 
                 Selected = item
 
                 SelectedText.Text =
                     "Selected: " .. item.Name
-                    .. " | Price: " .. price
+                    .. " | " .. priceText
 
                 Render()
 
@@ -639,16 +632,16 @@ end
 
 local function Refresh()
 
-    local selectedName = Selected and Selected.Name
+    local oldName = Selected and Selected.Name
 
     Items = ScanItems()
     Selected = nil
 
-    if selectedName then
+    if oldName then
 
         for _, item in ipairs(Items) do
 
-            if item.Name == selectedName then
+            if item.Name == oldName then
                 Selected = item
                 break
             end
@@ -671,14 +664,14 @@ local function Refresh()
     Render()
 
     Notify(
-        "Item Buyer V2",
-        "Found items: " .. #Items
+        "Pop It Buyer V2.1",
+        "Items found: " .. tostring(#Items)
     )
 
 end
 
 --------------------------------------------------
--- BALANCE
+-- BALANCE DETECTION
 --------------------------------------------------
 
 local function GetBalance()
@@ -689,14 +682,14 @@ local function GetBalance()
         return nil
     end
 
-    local names = {
+    local currencies = {
         "Cash",
         "Coins",
         "Money",
         "Credits"
     }
 
-    for _, name in ipairs(names) do
+    for _, name in ipairs(currencies) do
 
         local value = stats:FindFirstChild(name)
 
@@ -719,19 +712,15 @@ end
 -- PURCHASE ADAPTER
 --------------------------------------------------
 
--- IMPORTANT:
--- The game's actual purchase remote is unknown.
+-- Replace with confirmed game purchase logic.
 --
--- Replace this function with the real,
--- server-confirmed purchase mechanism.
---
--- Expected:
+-- Return:
 -- true, "Success"
 -- false, "Reason"
 
 local function PurchaseAdapter(item)
 
-    return false, "Purchase adapter not configured"
+    return false, "Purchase system not configured"
 
 end
 
@@ -760,7 +749,7 @@ local function Buy()
 
         Notify(
             "Purchase Failed",
-            "Price is unknown"
+            "Price not available"
         )
 
         return
@@ -769,7 +758,8 @@ local function Buy()
 
     local balance = GetBalance()
 
-    if balance ~= nil and balance < Selected.Price then
+    if balance ~= nil
+    and balance < Selected.Price then
 
         Notify(
             "Purchase Failed",
@@ -792,9 +782,7 @@ local function Buy()
     local item = Selected
 
     local ok, success, message = pcall(function()
-
         return PurchaseAdapter(item)
-
     end)
 
     Buying = false
@@ -834,9 +822,7 @@ end
 --------------------------------------------------
 
 BuyButton.MouseButton1Click:Connect(function()
-
     task.spawn(Buy)
-
 end)
 
 --------------------------------------------------
@@ -866,14 +852,29 @@ task.spawn(function()
     while Running do
 
         if AutoBuy and Selected and not Buying then
-
             Buy()
-
         end
 
         task.wait(Config.AutoBuyDelay)
 
     end
+
+end)
+
+--------------------------------------------------
+-- DELAY BUTTON
+--------------------------------------------------
+
+DelayButton.MouseButton1Click:Connect(function()
+
+    Config.AutoBuyDelay += 1
+
+    if Config.AutoBuyDelay > Config.MaxDelay then
+        Config.AutoBuyDelay = Config.MinDelay
+    end
+
+    DelayButton.Text =
+        "DELAY: " .. Config.AutoBuyDelay .. "s"
 
 end)
 
@@ -892,8 +893,8 @@ Search:GetPropertyChangedSignal("Text"):Connect(Render)
 Refresh()
 
 Notify(
-    "POP IT BUYER V2",
-    "Script loaded!"
+    "POP IT BUYER V2.1",
+    "GUI loaded successfully!"
 )
 
-print("[POP IT BUYER V2] Loaded successfully")
+print("[POP IT BUYER V2.1] Loaded")
