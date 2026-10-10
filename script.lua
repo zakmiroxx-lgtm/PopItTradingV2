@@ -1,21 +1,20 @@
 --[[
-    POP IT TRADING | ITEM BUYER V4
-
-    Game ID: 7346416636
+    POP IT TRADING | ULTIMATE HUB V6
+    PlaceId: 7346416636
 
     Features:
     - Dark Mode GUI
-    - Item Search
-    - Item Selection
-    - Real BuyItemCash Remote
+    - Mobile + PC
+    - Draggable Window
+    - Item Buyer
     - Auto Buy
-    - Adjustable Delay
-    - Refresh Items
-    - Price Detection
-    - Mobile Support
-    - Draggable GUI
+    - Search / Refresh
+    - Wheel Prize
+    - Redeem Codes
+    - Custom Local Codes
     - Notifications
-    - Duplicate Request Protection
+
+    Custom codes are LOCAL ONLY.
 ]]
 
 --------------------------------------------------
@@ -26,16 +25,13 @@ local Players = game:GetService("Players")
 local RS = game:GetService("ReplicatedStorage")
 local UIS = game:GetService("UserInputService")
 local StarterGui = game:GetService("StarterGui")
+local HttpService = game:GetService("HttpService")
 
 local Player = Players.LocalPlayer
 local PlayerGui = Player:WaitForChild("PlayerGui")
 
---------------------------------------------------
--- GAME CHECK
---------------------------------------------------
-
 if game.PlaceId ~= 7346416636 then
-    warn("[POP IT BUYER] Wrong game!")
+    warn("[V6] Unsupported game")
     return
 end
 
@@ -47,7 +43,9 @@ local Config = {
     AutoBuyDelay = 2,
     MinDelay = 1,
     MaxDelay = 10,
-    PurchaseCooldown = 1.5
+    BuyCooldown = 1.5,
+    ClaimCooldown = 5,
+    CodeCooldown = 3
 }
 
 --------------------------------------------------
@@ -56,11 +54,11 @@ local Config = {
 
 local Env = getgenv and getgenv()
 
-if Env and Env.PopItBuyerStop then
-    Env.PopItBuyerStop()
+if Env and Env.PopItHubStop then
+    Env.PopItHubStop()
 end
 
-local Old = PlayerGui:FindFirstChild("PopItBuyerV4")
+local Old = PlayerGui:FindFirstChild("PopItUltimateV6")
 
 if Old then
     Old:Destroy()
@@ -76,10 +74,14 @@ local Buying = false
 
 local Items = {}
 local Selected = nil
+local CustomCodes = {}
+
 local LastBuy = 0
+local LastClaim = 0
+local LastCode = 0
 
 if Env then
-    Env.PopItBuyerStop = function()
+    Env.PopItHubStop = function()
         Running = false
         AutoBuy = false
     end
@@ -139,28 +141,73 @@ local function Notify(title, text)
 
 end
 
---------------------------------------------------
--- PURCHASE REMOTE
---------------------------------------------------
+local function Button(text, parent, position, size, color)
 
-local RemoteFolder = RS:WaitForChild("RemoteEvents", 10)
+    local b = New("TextButton", {
+        Size = size,
+        Position = position,
+        BackgroundColor3 = color or C.Button,
+        Text = text,
+        TextColor3 = C.White,
+        Font = Enum.Font.GothamBold,
+        TextSize = 13,
+        BorderSizePixel = 0
+    }, parent)
 
-local BuyRemote = RemoteFolder
-    and RemoteFolder:FindFirstChild("BuyItemCash")
+    Round(b, 8)
+    return b
 
-if not BuyRemote or not BuyRemote:IsA("RemoteEvent") then
+end
 
-    warn("[POP IT BUYER] BuyItemCash not found!")
+local function TextBox(placeholder, parent, position, size)
 
-    Notify(
-        "Item Buyer",
-        "BuyItemCash remote not found"
-    )
+    local box = New("TextBox", {
+        Size = size,
+        Position = position,
+        BackgroundColor3 = C.Panel,
+        PlaceholderText = placeholder,
+        PlaceholderColor3 = C.Gray,
+        Text = "",
+        TextColor3 = C.White,
+        Font = Enum.Font.Gotham,
+        TextSize = 14,
+        ClearTextOnFocus = false,
+        BorderSizePixel = 0
+    }, parent)
+
+    Round(box, 8)
+    return box
 
 end
 
 --------------------------------------------------
--- PRICE DETECTION
+-- REMOTES
+--------------------------------------------------
+
+local function GetRemote(name, class)
+
+    local folder = RS:FindFirstChild("RemoteEvents")
+
+    if not folder then
+        return nil
+    end
+
+    local remote = folder:FindFirstChild(name)
+
+    if remote and remote:IsA(class) then
+        return remote
+    end
+
+    return nil
+
+end
+
+local BuyRemote = GetRemote("BuyItemCash", "RemoteEvent")
+local ClaimRemote = GetRemote("ClaimPrize", "RemoteFunction")
+local CodeRemote = GetRemote("RequestCode", "RemoteEvent")
+
+--------------------------------------------------
+-- ITEM SCANNER
 --------------------------------------------------
 
 local PriceNames = {
@@ -180,29 +227,24 @@ local function GetPrice(obj)
 
     for _, name in ipairs(PriceNames) do
 
-        local attribute = obj:GetAttribute(name)
+        local value = obj:GetAttribute(name)
 
-        if type(attribute) == "number"
-        and attribute >= 0 then
-
-            return attribute
-
+        if type(value) == "number" and value >= 0 then
+            return value
         end
 
     end
 
-    for _, descendant in ipairs(obj:GetDescendants()) do
+    for _, child in ipairs(obj:GetDescendants()) do
 
-        if descendant:IsA("IntValue")
-        or descendant:IsA("NumberValue") then
+        if child:IsA("IntValue")
+        or child:IsA("NumberValue") then
 
             for _, name in ipairs(PriceNames) do
 
-                if descendant.Name == name
-                and descendant.Value >= 0 then
-
-                    return descendant.Value
-
+                if child.Name == name
+                and child.Value >= 0 then
+                    return child.Value
                 end
 
             end
@@ -215,29 +257,20 @@ local function GetPrice(obj)
 
 end
 
---------------------------------------------------
--- ITEM SCANNER
---------------------------------------------------
-
 local function ScanItems()
 
     local found = {}
     local seen = {}
 
-    local folders = {
+    for _, folderName in ipairs({
         "Items",
         "ShopItems",
         "ItemData",
         "Catalog",
         "Shop"
-    }
+    }) do
 
-    for _, folderName in ipairs(folders) do
-
-        local folder = RS:FindFirstChild(
-            folderName,
-            true
-        )
+        local folder = RS:FindFirstChild(folderName, true)
 
         if folder then
 
@@ -249,8 +282,7 @@ local function ScanItems()
 
                     table.insert(found, {
                         Name = obj.Name,
-                        Price = GetPrice(obj),
-                        Object = obj
+                        Price = GetPrice(obj)
                     })
 
                 end
@@ -270,19 +302,53 @@ local function ScanItems()
 end
 
 --------------------------------------------------
+-- BALANCE
+--------------------------------------------------
+
+local function GetBalance()
+
+    local stats = Player:FindFirstChild("leaderstats")
+
+    if not stats then
+        return nil
+    end
+
+    for _, name in ipairs({
+        "Cash",
+        "Coins",
+        "Money",
+        "Credits"
+    }) do
+
+        local value = stats:FindFirstChild(name)
+
+        if value and (
+            value:IsA("IntValue")
+            or value:IsA("NumberValue")
+        ) then
+            return value.Value
+        end
+
+    end
+
+    return nil
+
+end
+
+--------------------------------------------------
 -- GUI
 --------------------------------------------------
 
 local Gui = New("ScreenGui", {
-    Name = "PopItBuyerV4",
+    Name = "PopItUltimateV6",
     ResetOnSpawn = false,
     IgnoreGuiInset = true,
     DisplayOrder = 999
 }, PlayerGui)
 
 local Main = New("Frame", {
-    Size = UDim2.fromOffset(390, 550),
-    Position = UDim2.new(0.5, -195, 0.5, -275),
+    Size = UDim2.fromOffset(420, 560),
+    Position = UDim2.new(0.5, -210, 0.5, -280),
     BackgroundColor3 = C.BG,
     BorderSizePixel = 0
 }, Gui)
@@ -293,10 +359,6 @@ New("UIStroke", {
     Color = C.Purple,
     Thickness = 1.5
 }, Main)
-
---------------------------------------------------
--- MOBILE SCALE
---------------------------------------------------
 
 local Scale = New("UIScale", {
     Scale = 1
@@ -314,8 +376,8 @@ local function UpdateScale()
 
     Scale.Scale = math.min(
         1,
-        size.X / 420,
-        size.Y / 580
+        size.X / 450,
+        size.Y / 590
     )
 
 end
@@ -335,7 +397,7 @@ end
 --------------------------------------------------
 
 local Header = New("Frame", {
-    Size = UDim2.new(1, 0, 0, 50),
+    Size = UDim2.new(1, 0, 0, 52),
     BackgroundColor3 = C.Panel,
     BorderSizePixel = 0
 }, Main)
@@ -346,41 +408,30 @@ New("TextLabel", {
     Size = UDim2.new(1, -100, 1, 0),
     Position = UDim2.fromOffset(15, 0),
     BackgroundTransparency = 1,
-    Text = "POP IT | BUYER V4",
+    Text = "POP IT | ULTIMATE V6",
     TextColor3 = C.White,
     Font = Enum.Font.GothamBold,
     TextSize = 17,
     TextXAlignment = Enum.TextXAlignment.Left
 }, Header)
 
-local Close = New("TextButton", {
-    Size = UDim2.fromOffset(34, 32),
-    Position = UDim2.new(1, -43, 0, 9),
-    BackgroundColor3 = C.Red,
-    Text = "X",
-    TextColor3 = C.White,
-    Font = Enum.Font.GothamBold,
-    TextSize = 14
-}, Header)
+local Close = Button(
+    "X",
+    Header,
+    UDim2.new(1, -43, 0, 10),
+    UDim2.fromOffset(34, 32),
+    C.Red
+)
 
-Round(Close, 8)
+local Open = Button(
+    "POP IT HUB",
+    Gui,
+    UDim2.new(0, 10, 0.5, -22),
+    UDim2.fromOffset(120, 44),
+    C.Purple
+)
 
---------------------------------------------------
--- OPEN BUTTON
---------------------------------------------------
-
-local Open = New("TextButton", {
-    Size = UDim2.fromOffset(125, 45),
-    Position = UDim2.new(0, 10, 0.5, -22),
-    BackgroundColor3 = C.Purple,
-    Text = "ITEM BUYER",
-    TextColor3 = C.White,
-    Font = Enum.Font.GothamBold,
-    TextSize = 13,
-    Visible = false
-}, Gui)
-
-Round(Open, 10)
+Open.Visible = false
 
 Close.MouseButton1Click:Connect(function()
     Main.Visible = false
@@ -447,60 +498,108 @@ UIS.InputEnded:Connect(function(input)
 end)
 
 --------------------------------------------------
--- SEARCH
+-- TABS
 --------------------------------------------------
 
-local Search = New("TextBox", {
-    Size = UDim2.new(1, -24, 0, 40),
-    Position = UDim2.fromOffset(12, 62),
-    BackgroundColor3 = C.Panel,
-    PlaceholderText = "Search items...",
-    PlaceholderColor3 = C.Gray,
-    Text = "",
-    TextColor3 = C.White,
-    Font = Enum.Font.Gotham,
-    TextSize = 14,
-    ClearTextOnFocus = false
+local TabBar = New("Frame", {
+    Size = UDim2.new(1, -24, 0, 42),
+    Position = UDim2.fromOffset(12, 64),
+    BackgroundTransparency = 1
 }, Main)
 
-Round(Search, 8)
+local TabNames = {
+    "BUYER",
+    "REWARDS",
+    "CODES",
+    "CUSTOM"
+}
+
+local Tabs = {}
+local Pages = {}
+
+for i, name in ipairs(TabNames) do
+
+    local width = 0.24
+
+    Tabs[name] = Button(
+        name,
+        TabBar,
+        UDim2.new((i - 1) * 0.253, 0, 0, 0),
+        UDim2.new(width, 0, 1, 0),
+        C.Button
+    )
+
+    Pages[name] = New("Frame", {
+        Size = UDim2.new(1, -24, 1, -125),
+        Position = UDim2.fromOffset(12, 115),
+        BackgroundTransparency = 1,
+        Visible = false
+    }, Main)
+
+end
+
+local function SwitchTab(name)
+
+    for pageName, page in pairs(Pages) do
+        page.Visible = pageName == name
+    end
+
+    for tabName, button in pairs(Tabs) do
+
+        button.BackgroundColor3 =
+            tabName == name and C.Purple or C.Button
+
+    end
+
+end
+
+for name, button in pairs(Tabs) do
+
+    button.MouseButton1Click:Connect(function()
+        SwitchTab(name)
+    end)
+
+end
 
 --------------------------------------------------
--- ITEM LIST
+-- BUYER PAGE
 --------------------------------------------------
+
+local Buyer = Pages.BUYER
+
+local Search = TextBox(
+    "Search items...",
+    Buyer,
+    UDim2.fromOffset(0, 0),
+    UDim2.new(1, 0, 0, 40)
+)
 
 local List = New("ScrollingFrame", {
-    Size = UDim2.new(1, -24, 0, 235),
-    Position = UDim2.fromOffset(12, 112),
+    Size = UDim2.new(1, 0, 0, 220),
+    Position = UDim2.fromOffset(0, 50),
     BackgroundColor3 = C.Panel,
-    BorderSizePixel = 0,
     ScrollBarThickness = 4,
-    ScrollBarImageColor3 = C.Purple,
     AutomaticCanvasSize = Enum.AutomaticSize.Y,
-    CanvasSize = UDim2.fromOffset(0, 0)
-}, Main)
+    CanvasSize = UDim2.fromOffset(0, 0),
+    BorderSizePixel = 0
+}, Buyer)
 
 Round(List, 8)
 
 New("UIListLayout", {
-    Padding = UDim.new(0, 5),
-    SortOrder = Enum.SortOrder.LayoutOrder
+    Padding = UDim.new(0, 5)
 }, List)
 
 New("UIPadding", {
     PaddingTop = UDim.new(0, 6),
-    PaddingBottom = UDim.new(0, 6),
     PaddingLeft = UDim.new(0, 6),
-    PaddingRight = UDim.new(0, 6)
+    PaddingRight = UDim.new(0, 6),
+    PaddingBottom = UDim.new(0, 6)
 }, List)
 
---------------------------------------------------
--- SELECTED
---------------------------------------------------
-
 local SelectedLabel = New("TextLabel", {
-    Size = UDim2.new(1, -24, 0, 30),
-    Position = UDim2.fromOffset(12, 355),
+    Size = UDim2.new(1, 0, 0, 30),
+    Position = UDim2.fromOffset(0, 278),
     BackgroundTransparency = 1,
     Text = "Selected: None",
     TextColor3 = C.White,
@@ -508,70 +607,47 @@ local SelectedLabel = New("TextLabel", {
     TextSize = 13,
     TextXAlignment = Enum.TextXAlignment.Left,
     TextTruncate = Enum.TextTruncate.AtEnd
-}, Main)
-
---------------------------------------------------
--- BUTTON FACTORY
---------------------------------------------------
-
-local function Button(text, position, size, color)
-
-    local b = New("TextButton", {
-        Size = size,
-        Position = position,
-        BackgroundColor3 = color,
-        Text = text,
-        TextColor3 = C.White,
-        Font = Enum.Font.GothamBold,
-        TextSize = 14,
-        BorderSizePixel = 0
-    }, Main)
-
-    Round(b, 8)
-
-    return b
-
-end
-
---------------------------------------------------
--- BUTTONS
---------------------------------------------------
+}, Buyer)
 
 local BuyButton = Button(
     "BUY SELECTED ITEM",
-    UDim2.fromOffset(12, 392),
-    UDim2.new(1, -24, 0, 42),
+    Buyer,
+    UDim2.fromOffset(0, 315),
+    UDim2.new(1, 0, 0, 40),
     C.Green
 )
 
 local AutoButton = Button(
     "AUTO BUY: OFF",
-    UDim2.fromOffset(12, 442),
-    UDim2.new(0.48, 0, 0, 36),
+    Buyer,
+    UDim2.fromOffset(0, 363),
+    UDim2.new(0.48, 0, 0, 35),
     C.Button
 )
 
 local RefreshButton = Button(
     "REFRESH",
-    UDim2.new(0.52, 0, 0, 442),
-    UDim2.new(0.45, 0, 0, 36),
+    Buyer,
+    UDim2.new(0.52, 0, 0, 363),
+    UDim2.new(0.48, 0, 0, 35),
     C.Purple
 )
 
 local DelayButton = Button(
     "DELAY: 2s",
-    UDim2.fromOffset(12, 486),
-    UDim2.new(1, -24, 0, 36),
+    Buyer,
+    UDim2.fromOffset(0, 405),
+    UDim2.new(1, 0, 0, 32),
     C.Button
 )
 
 --------------------------------------------------
--- RENDER
+-- RENDER ITEMS
 --------------------------------------------------
 
-local Render
+local RenderItems
 
-Render = function()
+RenderItems = function()
 
     for _, child in ipairs(List:GetChildren()) do
 
@@ -595,21 +671,16 @@ Render = function()
                 and tostring(item.Price)
                 or "Price N/A"
 
-            local b = New("TextButton", {
-                Size = UDim2.new(1, -2, 0, 37),
-                BackgroundColor3 =
-                    Selected == item and C.Purple
-                    or C.Button,
-                Text = "  " .. item.Name .. " | " .. price,
-                TextColor3 = C.White,
-                Font = Enum.Font.Gotham,
-                TextSize = 13,
-                TextXAlignment = Enum.TextXAlignment.Left,
-                TextTruncate = Enum.TextTruncate.AtEnd,
-                BorderSizePixel = 0
-            }, List)
+            local b = Button(
+                item.Name .. " | " .. price,
+                List,
+                UDim2.new(),
+                UDim2.new(1, -2, 0, 36),
+                Selected == item and C.Purple or C.Button
+            )
 
-            Round(b, 7)
+            b.TextXAlignment = Enum.TextXAlignment.Left
+            b.TextTruncate = Enum.TextTruncate.AtEnd
 
             b.MouseButton1Click:Connect(function()
 
@@ -619,7 +690,7 @@ Render = function()
                     "Selected: " .. item.Name
                     .. " | " .. price
 
-                Render()
+                RenderItems()
 
             end)
 
@@ -631,11 +702,10 @@ Render = function()
 
         New("TextLabel", {
             Name = "EmptyLabel",
-            Size = UDim2.new(1, -2, 0, 40),
+            Size = UDim2.new(1, 0, 0, 40),
             BackgroundTransparency = 1,
             Text = "No items found",
             TextColor3 = C.Gray,
-            Font = Enum.Font.Gotham,
             TextSize = 14
         }, List)
 
@@ -643,205 +713,80 @@ Render = function()
 
 end
 
---------------------------------------------------
--- REFRESH
---------------------------------------------------
-
 local function Refresh()
-
-    local oldName = Selected and Selected.Name
 
     Items = ScanItems()
     Selected = nil
 
-    if oldName then
+    SelectedLabel.Text = "Selected: None"
 
-        for _, item in ipairs(Items) do
-
-            if item.Name == oldName then
-                Selected = item
-                break
-            end
-
-        end
-
-    end
-
-    SelectedLabel.Text = Selected
-        and ("Selected: " .. Selected.Name)
-        or "Selected: None"
-
-    Render()
+    RenderItems()
 
     Notify(
-        "Item Buyer V4",
+        "Item Buyer",
         "Found " .. #Items .. " items"
     )
 
 end
 
 --------------------------------------------------
--- BALANCE
---------------------------------------------------
-
-local function GetBalance()
-
-    local stats = Player:FindFirstChild("leaderstats")
-
-    if not stats then
-        return nil
-    end
-
-    for _, name in ipairs({
-        "Cash",
-        "Coins",
-        "Money",
-        "Credits"
-    }) do
-
-        local value = stats:FindFirstChild(name)
-
-        if value and (
-            value:IsA("IntValue")
-            or value:IsA("NumberValue")
-        ) then
-
-            return value.Value
-
-        end
-
-    end
-
-    return nil
-
-end
-
---------------------------------------------------
--- REAL PURCHASE FUNCTION
---------------------------------------------------
-
-local function PurchaseItem(item)
-
-    if not BuyRemote then
-        return false, "BuyItemCash unavailable"
-    end
-
-    if typeof(item.Name) ~= "string"
-    or item.Name == "" then
-
-        return false, "Invalid item name"
-
-    end
-
-    local ok, err = pcall(function()
-
-        BuyRemote:FireServer(item.Name)
-
-    end)
-
-    if not ok then
-
-        return false, tostring(err)
-
-    end
-
-    return true, "Request sent"
-
-end
-
---------------------------------------------------
--- BUY
+-- BUY SYSTEM
 --------------------------------------------------
 
 local function Buy()
 
-    if Buying then
+    if Buying or not Running then
         return
     end
 
     if not Selected then
-
-        Notify("Item Buyer", "Select an item first")
+        Notify("Buyer", "Select an item")
         return
-
     end
 
-    local item = Selected
-
-    if item.Price == nil then
-
-        Notify(
-            "Purchase Failed",
-            "Price unavailable"
-        )
-
+    if not BuyRemote then
+        Notify("Buyer", "BuyItemCash unavailable")
         return
+    end
 
+    if Selected.Price == nil then
+        Notify("Buyer", "Price unavailable")
+        return
     end
 
     local balance = GetBalance()
 
-    if balance ~= nil
-    and balance < item.Price then
-
-        Notify(
-            "Purchase Failed",
-            "Not enough currency"
-        )
-
+    if balance ~= nil and balance < Selected.Price then
+        Notify("Buyer", "Not enough currency")
         return
-
     end
 
-    local now = os.clock()
-
-    if now - LastBuy < Config.PurchaseCooldown then
+    if os.clock() - LastBuy < Config.BuyCooldown then
         return
     end
 
     Buying = true
-    LastBuy = now
+    LastBuy = os.clock()
 
-    BuyButton.Text = "BUYING..."
+    local name = Selected.Name
 
-    local success, message = PurchaseItem(item)
+    local ok, err = pcall(function()
+        BuyRemote:FireServer(name)
+    end)
 
     Buying = false
-    BuyButton.Text = "BUY SELECTED ITEM"
 
-    if success then
-
-        Notify(
-            "Purchase Request Sent",
-            item.Name
-        )
-
+    if ok then
+        Notify("Purchase Request Sent", name)
     else
-
-        Notify(
-            "Purchase Error",
-            message
-        )
-
+        Notify("Purchase Error", tostring(err))
     end
 
 end
 
---------------------------------------------------
--- EVENTS
---------------------------------------------------
-
 BuyButton.MouseButton1Click:Connect(function()
     task.spawn(Buy)
 end)
-
-RefreshButton.MouseButton1Click:Connect(Refresh)
-
-Search:GetPropertyChangedSignal("Text"):Connect(Render)
-
---------------------------------------------------
--- AUTO BUY
---------------------------------------------------
 
 AutoButton.MouseButton1Click:Connect(function()
 
@@ -861,7 +806,7 @@ task.spawn(function()
 
     while Running do
 
-        if AutoBuy and Selected and not Buying then
+        if AutoBuy and Selected then
             Buy()
         end
 
@@ -870,10 +815,6 @@ task.spawn(function()
     end
 
 end)
-
---------------------------------------------------
--- DELAY BUTTON
---------------------------------------------------
 
 DelayButton.MouseButton1Click:Connect(function()
 
@@ -888,15 +829,358 @@ DelayButton.MouseButton1Click:Connect(function()
 
 end)
 
+RefreshButton.MouseButton1Click:Connect(Refresh)
+Search:GetPropertyChangedSignal("Text"):Connect(RenderItems)
+
+--------------------------------------------------
+-- REWARDS PAGE
+--------------------------------------------------
+
+local Rewards = Pages.REWARDS
+
+New("TextLabel", {
+    Size = UDim2.new(1, 0, 0, 100),
+    Position = UDim2.fromOffset(0, 20),
+    BackgroundTransparency = 1,
+    Text = "WHEEL OF FORTUNE\n\nClaim an available wheel prize.",
+    TextColor3 = C.White,
+    TextSize = 17,
+    Font = Enum.Font.GothamBold,
+    TextWrapped = true
+}, Rewards)
+
+local ClaimButton = Button(
+    "CLAIM WHEEL PRIZE",
+    Rewards,
+    UDim2.fromOffset(0, 145),
+    UDim2.new(1, 0, 0, 45),
+    C.Green
+)
+
+local ClaimBusy = false
+
+ClaimButton.MouseButton1Click:Connect(function()
+
+    if ClaimBusy then
+        return
+    end
+
+    if not ClaimRemote then
+        Notify("Wheel", "ClaimPrize unavailable")
+        return
+    end
+
+    if os.clock() - LastClaim < Config.ClaimCooldown then
+        Notify("Wheel", "Please wait")
+        return
+    end
+
+    ClaimBusy = true
+    LastClaim = os.clock()
+
+    ClaimButton.Text = "CLAIMING..."
+
+    task.spawn(function()
+
+        local ok, result = pcall(function()
+            return ClaimRemote:InvokeServer()
+        end)
+
+        ClaimBusy = false
+        ClaimButton.Text = "CLAIM WHEEL PRIZE"
+
+        if ok then
+            Notify("Wheel Response", tostring(result))
+        else
+            Notify("Wheel Error", tostring(result))
+        end
+
+    end)
+
+end)
+
+--------------------------------------------------
+-- CODES PAGE
+--------------------------------------------------
+
+local Codes = Pages.CODES
+
+New("TextLabel", {
+    Size = UDim2.new(1, 0, 0, 60),
+    Position = UDim2.fromOffset(0, 20),
+    BackgroundTransparency = 1,
+    Text = "REDEEM PROMO CODES",
+    TextColor3 = C.White,
+    TextSize = 18,
+    Font = Enum.Font.GothamBold
+}, Codes)
+
+local CodeBox = TextBox(
+    "Enter promo code...",
+    Codes,
+    UDim2.fromOffset(0, 95),
+    UDim2.new(1, 0, 0, 45)
+)
+
+local RedeemButton = Button(
+    "REDEEM CODE",
+    Codes,
+    UDim2.fromOffset(0, 155),
+    UDim2.new(1, 0, 0, 45),
+    C.Purple
+)
+
+RedeemButton.MouseButton1Click:Connect(function()
+
+    if not CodeRemote then
+        Notify("Codes", "RequestCode unavailable")
+        return
+    end
+
+    if os.clock() - LastCode < Config.CodeCooldown then
+        Notify("Codes", "Please wait")
+        return
+    end
+
+    local code = CodeBox.Text:match("^%s*(.-)%s*$")
+
+    if code == "" then
+        Notify("Codes", "Enter a code")
+        return
+    end
+
+    LastCode = os.clock()
+
+    local ok, err = pcall(function()
+        CodeRemote:FireServer(code)
+    end)
+
+    if ok then
+        Notify("Code Request Sent", code)
+    else
+        Notify("Code Error", tostring(err))
+    end
+
+end)
+
+--------------------------------------------------
+-- CUSTOM CODES PAGE
+--------------------------------------------------
+
+local Custom = Pages.CUSTOM
+
+New("TextLabel", {
+    Size = UDim2.new(1, 0, 0, 40),
+    Position = UDim2.fromOffset(0, 5),
+    BackgroundTransparency = 1,
+    Text = "CUSTOM CODES (LOCAL ONLY)",
+    TextColor3 = C.White,
+    Font = Enum.Font.GothamBold,
+    TextSize = 16
+}, Custom)
+
+local CustomCodeBox = TextBox(
+    "Custom code name...",
+    Custom,
+    UDim2.fromOffset(0, 55),
+    UDim2.new(1, 0, 0, 40)
+)
+
+local RewardBox = TextBox(
+    "Reward description...",
+    Custom,
+    UDim2.fromOffset(0, 105),
+    UDim2.new(1, 0, 0, 40)
+)
+
+local CreateButton = Button(
+    "CREATE LOCAL CODE",
+    Custom,
+    UDim2.fromOffset(0, 155),
+    UDim2.new(1, 0, 0, 40),
+    C.Green
+)
+
+local CustomList = New("ScrollingFrame", {
+    Size = UDim2.new(1, 0, 0, 185),
+    Position = UDim2.fromOffset(0, 205),
+    BackgroundColor3 = C.Panel,
+    ScrollBarThickness = 4,
+    AutomaticCanvasSize = Enum.AutomaticSize.Y,
+    CanvasSize = UDim2.fromOffset(0, 0),
+    BorderSizePixel = 0
+}, Custom)
+
+Round(CustomList, 8)
+
+New("UIListLayout", {
+    Padding = UDim.new(0, 5)
+}, CustomList)
+
+New("UIPadding", {
+    PaddingTop = UDim.new(0, 6),
+    PaddingLeft = UDim.new(0, 6),
+    PaddingRight = UDim.new(0, 6),
+    PaddingBottom = UDim.new(0, 6)
+}, CustomList)
+
+--------------------------------------------------
+-- LOCAL CODE STORAGE
+--------------------------------------------------
+
+local SaveFile = "PopItCustomCodesV6.json"
+
+local function SaveCodes()
+
+    if not writefile then
+        return
+    end
+
+    pcall(function()
+
+        local json = HttpService:JSONEncode(CustomCodes)
+
+        writefile(SaveFile, json)
+
+    end)
+
+end
+
+local function LoadCodes()
+
+    if not readfile or not isfile then
+        return
+    end
+
+    pcall(function()
+
+        if isfile(SaveFile) then
+
+            local data = readfile(SaveFile)
+
+            local decoded = HttpService:JSONDecode(data)
+
+            if type(decoded) == "table" then
+                CustomCodes = decoded
+            end
+
+        end
+
+    end)
+
+end
+
+--------------------------------------------------
+-- RENDER CUSTOM CODES
+--------------------------------------------------
+
+local function RenderCustomCodes()
+
+    for _, child in ipairs(CustomList:GetChildren()) do
+
+        if child:IsA("Frame") then
+            child:Destroy()
+        end
+
+    end
+
+    for index, entry in ipairs(CustomCodes) do
+
+        local row = New("Frame", {
+            Size = UDim2.new(1, -2, 0, 45),
+            BackgroundColor3 = C.Button,
+            BorderSizePixel = 0
+        }, CustomList)
+
+        Round(row, 7)
+
+        New("TextLabel", {
+            Size = UDim2.new(0.72, 0, 1, 0),
+            Position = UDim2.fromOffset(8, 0),
+            BackgroundTransparency = 1,
+            Text = tostring(entry.Code)
+                .. " -> "
+                .. tostring(entry.Reward),
+            TextColor3 = C.White,
+            Font = Enum.Font.Gotham,
+            TextSize = 12,
+            TextXAlignment = Enum.TextXAlignment.Left,
+            TextTruncate = Enum.TextTruncate.AtEnd
+        }, row)
+
+        local Delete = Button(
+            "DELETE",
+            row,
+            UDim2.new(1, -85, 0, 6),
+            UDim2.fromOffset(78, 33),
+            C.Red
+        )
+
+        Delete.MouseButton1Click:Connect(function()
+
+            table.remove(CustomCodes, index)
+
+            SaveCodes()
+            RenderCustomCodes()
+
+            Notify("Custom Codes", "Code deleted")
+
+        end)
+
+    end
+
+end
+
+CreateButton.MouseButton1Click:Connect(function()
+
+    local code = CustomCodeBox.Text:match("^%s*(.-)%s*$")
+    local reward = RewardBox.Text:match("^%s*(.-)%s*$")
+
+    if code == "" or reward == "" then
+        Notify("Custom Codes", "Fill both fields")
+        return
+    end
+
+    for _, entry in ipairs(CustomCodes) do
+
+        if entry.Code:lower() == code:lower() then
+            Notify("Custom Codes", "Code already exists")
+            return
+        end
+
+    end
+
+    table.insert(CustomCodes, {
+        Code = code,
+        Reward = reward
+    })
+
+    SaveCodes()
+    RenderCustomCodes()
+
+    CustomCodeBox.Text = ""
+    RewardBox.Text = ""
+
+    Notify(
+        "Custom Codes",
+        "Local code created: " .. code
+    )
+
+end)
+
 --------------------------------------------------
 -- START
 --------------------------------------------------
 
+LoadCodes()
+RenderCustomCodes()
+
+SwitchTab("BUYER")
 Refresh()
 
 Notify(
-    "POP IT BUYER V4",
-    "GUI loaded successfully!"
+    "POP IT ULTIMATE V6",
+    "Hub loaded successfully!"
 )
 
-print("[POP IT BUYER V4] Loaded")
+print("[POP IT ULTIMATE V6] Loaded")
