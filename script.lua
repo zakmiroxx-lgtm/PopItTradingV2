@@ -1,21 +1,21 @@
 --[[
-    POP IT TRADING | ITEM BUYER V3
-    Game: 7346416636
+    POP IT TRADING | ITEM BUYER V4
+
+    Game ID: 7346416636
 
     Features:
-    Dark UI
-    Item Scanner
-    Search
-    Price Detection
-    Buy
-    Auto Buy
-    Refresh
-    Remote Diagnostics
-    Mobile Support
-
-    Note:
-    Purchase adapter requires verified
-    game-specific purchase information.
+    - Dark Mode GUI
+    - Item Search
+    - Item Selection
+    - Real BuyItemCash Remote
+    - Auto Buy
+    - Adjustable Delay
+    - Refresh Items
+    - Price Detection
+    - Mobile Support
+    - Draggable GUI
+    - Notifications
+    - Duplicate Request Protection
 ]]
 
 --------------------------------------------------
@@ -31,25 +31,24 @@ local Player = Players.LocalPlayer
 local PlayerGui = Player:WaitForChild("PlayerGui")
 
 --------------------------------------------------
+-- GAME CHECK
+--------------------------------------------------
+
+if game.PlaceId ~= 7346416636 then
+    warn("[POP IT BUYER] Wrong game!")
+    return
+end
+
+--------------------------------------------------
 -- CONFIG
 --------------------------------------------------
 
 local Config = {
-    PlaceId = 7346416636,
     AutoBuyDelay = 2,
     MinDelay = 1,
     MaxDelay = 10,
-    PurchaseCooldown = 2
+    PurchaseCooldown = 1.5
 }
-
---------------------------------------------------
--- GAME CHECK
---------------------------------------------------
-
-if game.PlaceId ~= Config.PlaceId then
-    warn("[Pop It Buyer] Unsupported game")
-    return
-end
 
 --------------------------------------------------
 -- CLEANUP
@@ -61,7 +60,7 @@ if Env and Env.PopItBuyerStop then
     Env.PopItBuyerStop()
 end
 
-local Old = PlayerGui:FindFirstChild("PopItBuyerV3")
+local Old = PlayerGui:FindFirstChild("PopItBuyerV4")
 
 if Old then
     Old:Destroy()
@@ -80,12 +79,10 @@ local Selected = nil
 local LastBuy = 0
 
 if Env then
-
     Env.PopItBuyerStop = function()
         Running = false
         AutoBuy = false
     end
-
 end
 
 --------------------------------------------------
@@ -116,7 +113,6 @@ local function New(class, props, parent)
     end
 
     obj.Parent = parent
-
     return obj
 
 end
@@ -144,58 +140,21 @@ local function Notify(title, text)
 end
 
 --------------------------------------------------
--- REMOTE DIAGNOSTICS
+-- PURCHASE REMOTE
 --------------------------------------------------
 
-local function ScanRemotes()
+local RemoteFolder = RS:WaitForChild("RemoteEvents", 10)
 
-    local results = {}
+local BuyRemote = RemoteFolder
+    and RemoteFolder:FindFirstChild("BuyItemCash")
 
-    for _, obj in ipairs(RS:GetDescendants()) do
+if not BuyRemote or not BuyRemote:IsA("RemoteEvent") then
 
-        if obj:IsA("RemoteEvent")
-        or obj:IsA("RemoteFunction") then
-
-            table.insert(results, {
-                Name = obj.Name,
-                Path = obj:GetFullName(),
-                Class = obj.ClassName
-            })
-
-        end
-
-    end
-
-    table.sort(results, function(a, b)
-        return a.Path < b.Path
-    end)
-
-    return results
-
-end
-
-local function PrintDiagnostics()
-
-    print("========== POP IT BUYER V3 ==========")
-
-    local remotes = ScanRemotes()
-
-    print("Remote count:", #remotes)
-
-    for _, remote in ipairs(remotes) do
-
-        print(
-            remote.Class,
-            remote.Path
-        )
-
-    end
-
-    print("=====================================")
+    warn("[POP IT BUYER] BuyItemCash not found!")
 
     Notify(
-        "Diagnostics",
-        "Found " .. #remotes .. " remote objects"
+        "Item Buyer",
+        "BuyItemCash remote not found"
     )
 
 end
@@ -303,9 +262,7 @@ local function ScanItems()
     end
 
     table.sort(found, function(a, b)
-
         return a.Name:lower() < b.Name:lower()
-
     end)
 
     return found
@@ -317,7 +274,7 @@ end
 --------------------------------------------------
 
 local Gui = New("ScreenGui", {
-    Name = "PopItBuyerV3",
+    Name = "PopItBuyerV4",
     ResetOnSpawn = false,
     IgnoreGuiInset = true,
     DisplayOrder = 999
@@ -338,7 +295,7 @@ New("UIStroke", {
 }, Main)
 
 --------------------------------------------------
--- MOBILE SCALING
+-- MOBILE SCALE
 --------------------------------------------------
 
 local Scale = New("UIScale", {
@@ -389,7 +346,7 @@ New("TextLabel", {
     Size = UDim2.new(1, -100, 1, 0),
     Position = UDim2.fromOffset(15, 0),
     BackgroundTransparency = 1,
-    Text = "POP IT | BUYER V3",
+    Text = "POP IT | BUYER V4",
     TextColor3 = C.White,
     Font = Enum.Font.GothamBold,
     TextSize = 17,
@@ -426,17 +383,13 @@ local Open = New("TextButton", {
 Round(Open, 10)
 
 Close.MouseButton1Click:Connect(function()
-
     Main.Visible = false
     Open.Visible = true
-
 end)
 
 Open.MouseButton1Click:Connect(function()
-
     Main.Visible = true
     Open.Visible = false
-
 end)
 
 --------------------------------------------------
@@ -608,14 +561,7 @@ local RefreshButton = Button(
 local DelayButton = Button(
     "DELAY: 2s",
     UDim2.fromOffset(12, 486),
-    UDim2.new(0.48, 0, 0, 36),
-    C.Button
-)
-
-local DebugButton = Button(
-    "SCAN REMOTES",
-    UDim2.new(0.52, 0, 0, 486),
-    UDim2.new(0.45, 0, 0, 36),
+    UDim2.new(1, -24, 0, 36),
     C.Button
 )
 
@@ -631,9 +577,7 @@ Render = function()
 
         if child:IsA("TextButton")
         or child.Name == "EmptyLabel" then
-
             child:Destroy()
-
         end
 
     end
@@ -715,10 +659,8 @@ local function Refresh()
         for _, item in ipairs(Items) do
 
             if item.Name == oldName then
-
                 Selected = item
                 break
-
             end
 
         end
@@ -732,7 +674,7 @@ local function Refresh()
     Render()
 
     Notify(
-        "Item Buyer V3",
+        "Item Buyer V4",
         "Found " .. #Items .. " items"
     )
 
@@ -750,14 +692,12 @@ local function GetBalance()
         return nil
     end
 
-    local names = {
+    for _, name in ipairs({
         "Cash",
         "Coins",
         "Money",
         "Credits"
-    }
-
-    for _, name in ipairs(names) do
+    }) do
 
         local value = stats:FindFirstChild(name)
 
@@ -777,20 +717,35 @@ local function GetBalance()
 end
 
 --------------------------------------------------
--- PURCHASE ADAPTER
+-- REAL PURCHASE FUNCTION
 --------------------------------------------------
 
--- The real purchase mechanism must be verified.
--- Scanning remote names alone is insufficient.
---
--- Expected:
--- true, "Success"
--- false, "Reason"
+local function PurchaseItem(item)
 
-local function PurchaseAdapter(item)
+    if not BuyRemote then
+        return false, "BuyItemCash unavailable"
+    end
 
-    return false,
-        "Purchase remote not identified. Use SCAN REMOTES."
+    if typeof(item.Name) ~= "string"
+    or item.Name == "" then
+
+        return false, "Invalid item name"
+
+    end
+
+    local ok, err = pcall(function()
+
+        BuyRemote:FireServer(item.Name)
+
+    end)
+
+    if not ok then
+
+        return false, tostring(err)
+
+    end
+
+    return true, "Request sent"
 
 end
 
@@ -811,9 +766,15 @@ local function Buy()
 
     end
 
-    if Selected.Price == nil then
+    local item = Selected
 
-        Notify("Purchase Failed", "Price not available")
+    if item.Price == nil then
+
+        Notify(
+            "Purchase Failed",
+            "Price unavailable"
+        )
+
         return
 
     end
@@ -821,9 +782,13 @@ local function Buy()
     local balance = GetBalance()
 
     if balance ~= nil
-    and balance < Selected.Price then
+    and balance < item.Price then
 
-        Notify("Purchase Failed", "Not enough currency")
+        Notify(
+            "Purchase Failed",
+            "Not enough currency"
+        )
+
         return
 
     end
@@ -839,33 +804,23 @@ local function Buy()
 
     BuyButton.Text = "BUYING..."
 
-    local item = Selected
-
-    local ok, success, message = pcall(function()
-
-        return PurchaseAdapter(item)
-
-    end)
+    local success, message = PurchaseItem(item)
 
     Buying = false
     BuyButton.Text = "BUY SELECTED ITEM"
 
-    if not ok then
+    if success then
 
-        Notify("Purchase Error", tostring(success))
-        return
-
-    end
-
-    if success == true then
-
-        Notify("Purchase Successful", item.Name)
+        Notify(
+            "Purchase Request Sent",
+            item.Name
+        )
 
     else
 
         Notify(
-            "Purchase Failed",
-            tostring(message or "Unknown error")
+            "Purchase Error",
+            message
         )
 
     end
@@ -877,14 +832,10 @@ end
 --------------------------------------------------
 
 BuyButton.MouseButton1Click:Connect(function()
-
     task.spawn(Buy)
-
 end)
 
 RefreshButton.MouseButton1Click:Connect(Refresh)
-
-DebugButton.MouseButton1Click:Connect(PrintDiagnostics)
 
 Search:GetPropertyChangedSignal("Text"):Connect(Render)
 
@@ -911,9 +862,7 @@ task.spawn(function()
     while Running do
 
         if AutoBuy and Selected and not Buying then
-
             Buy()
-
         end
 
         task.wait(Config.AutoBuyDelay)
@@ -923,7 +872,7 @@ task.spawn(function()
 end)
 
 --------------------------------------------------
--- DELAY
+-- DELAY BUTTON
 --------------------------------------------------
 
 DelayButton.MouseButton1Click:Connect(function()
@@ -946,8 +895,8 @@ end)
 Refresh()
 
 Notify(
-    "POP IT BUYER V3",
+    "POP IT BUYER V4",
     "GUI loaded successfully!"
 )
 
-print("[POP IT BUYER V3] Loaded")
+print("[POP IT BUYER V4] Loaded")
