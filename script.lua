@@ -1,21 +1,21 @@
 --[[
-    POP IT TRADING | ITEM BUYER V2.1
-
-    Game: Pop It Trading
-    PlaceId: 7346416636
+    POP IT TRADING | ITEM BUYER V3
+    Game: 7346416636
 
     Features:
-    - Dark Mode
-    - Item Scanner
-    - Search
-    - Item Selection
-    - Price Detection
-    - Buy Button
-    - Auto Buy
-    - Refresh
-    - Mobile Support
-    - Dragging
-    - Notifications
+    Dark UI
+    Item Scanner
+    Search
+    Price Detection
+    Buy
+    Auto Buy
+    Refresh
+    Remote Diagnostics
+    Mobile Support
+
+    Note:
+    Purchase adapter requires verified
+    game-specific purchase information.
 ]]
 
 --------------------------------------------------
@@ -35,18 +35,19 @@ local PlayerGui = Player:WaitForChild("PlayerGui")
 --------------------------------------------------
 
 local Config = {
-    GameId = 7346416636,
+    PlaceId = 7346416636,
     AutoBuyDelay = 2,
     MinDelay = 1,
-    MaxDelay = 10
+    MaxDelay = 10,
+    PurchaseCooldown = 2
 }
 
 --------------------------------------------------
 -- GAME CHECK
 --------------------------------------------------
 
-if game.PlaceId ~= Config.GameId then
-    warn("[POP IT BUYER] Wrong game!")
+if game.PlaceId ~= Config.PlaceId then
+    warn("[Pop It Buyer] Unsupported game")
     return
 end
 
@@ -54,16 +55,16 @@ end
 -- CLEANUP
 --------------------------------------------------
 
-local Environment = getgenv and getgenv()
+local Env = getgenv and getgenv()
 
-if Environment and Environment.PopItBuyerStop then
-    Environment.PopItBuyerStop()
+if Env and Env.PopItBuyerStop then
+    Env.PopItBuyerStop()
 end
 
-local OldGui = PlayerGui:FindFirstChild("PopItBuyerV21")
+local Old = PlayerGui:FindFirstChild("PopItBuyerV3")
 
-if OldGui then
-    OldGui:Destroy()
+if Old then
+    Old:Destroy()
 end
 
 --------------------------------------------------
@@ -76,14 +77,15 @@ local Buying = false
 
 local Items = {}
 local Selected = nil
-
 local LastBuy = 0
 
-if Environment then
-    Environment.PopItBuyerStop = function()
+if Env then
+
+    Env.PopItBuyerStop = function()
         Running = false
         AutoBuy = false
     end
+
 end
 
 --------------------------------------------------
@@ -91,11 +93,11 @@ end
 --------------------------------------------------
 
 local C = {
-    BG = Color3.fromRGB(18, 19, 28),
-    Panel = Color3.fromRGB(29, 31, 44),
-    Button = Color3.fromRGB(43, 46, 63),
+    BG = Color3.fromRGB(17, 18, 27),
+    Panel = Color3.fromRGB(28, 30, 43),
+    Button = Color3.fromRGB(44, 46, 64),
     Purple = Color3.fromRGB(135, 95, 255),
-    Green = Color3.fromRGB(50, 190, 120),
+    Green = Color3.fromRGB(45, 190, 120),
     Red = Color3.fromRGB(225, 75, 90),
     White = Color3.fromRGB(245, 245, 255),
     Gray = Color3.fromRGB(160, 160, 180)
@@ -105,25 +107,25 @@ local C = {
 -- HELPERS
 --------------------------------------------------
 
-local function New(class, properties, parent)
+local function New(class, props, parent)
 
-    local object = Instance.new(class)
+    local obj = Instance.new(class)
 
-    for property, value in pairs(properties) do
-        object[property] = value
+    for k, v in pairs(props) do
+        obj[k] = v
     end
 
-    object.Parent = parent
+    obj.Parent = parent
 
-    return object
+    return obj
 
 end
 
-local function Round(object, radius)
+local function Round(obj, radius)
 
     New("UICorner", {
         CornerRadius = UDim.new(0, radius or 8)
-    }, object)
+    }, obj)
 
 end
 
@@ -142,19 +144,188 @@ local function Notify(title, text)
 end
 
 --------------------------------------------------
+-- REMOTE DIAGNOSTICS
+--------------------------------------------------
+
+local function ScanRemotes()
+
+    local results = {}
+
+    for _, obj in ipairs(RS:GetDescendants()) do
+
+        if obj:IsA("RemoteEvent")
+        or obj:IsA("RemoteFunction") then
+
+            table.insert(results, {
+                Name = obj.Name,
+                Path = obj:GetFullName(),
+                Class = obj.ClassName
+            })
+
+        end
+
+    end
+
+    table.sort(results, function(a, b)
+        return a.Path < b.Path
+    end)
+
+    return results
+
+end
+
+local function PrintDiagnostics()
+
+    print("========== POP IT BUYER V3 ==========")
+
+    local remotes = ScanRemotes()
+
+    print("Remote count:", #remotes)
+
+    for _, remote in ipairs(remotes) do
+
+        print(
+            remote.Class,
+            remote.Path
+        )
+
+    end
+
+    print("=====================================")
+
+    Notify(
+        "Diagnostics",
+        "Found " .. #remotes .. " remote objects"
+    )
+
+end
+
+--------------------------------------------------
+-- PRICE DETECTION
+--------------------------------------------------
+
+local PriceNames = {
+    "Price",
+    "price",
+    "Cost",
+    "cost",
+    "Cash",
+    "Coins",
+    "Money",
+    "Amount",
+    "BuyPrice",
+    "PurchasePrice"
+}
+
+local function GetPrice(obj)
+
+    for _, name in ipairs(PriceNames) do
+
+        local attribute = obj:GetAttribute(name)
+
+        if type(attribute) == "number"
+        and attribute >= 0 then
+
+            return attribute
+
+        end
+
+    end
+
+    for _, descendant in ipairs(obj:GetDescendants()) do
+
+        if descendant:IsA("IntValue")
+        or descendant:IsA("NumberValue") then
+
+            for _, name in ipairs(PriceNames) do
+
+                if descendant.Name == name
+                and descendant.Value >= 0 then
+
+                    return descendant.Value
+
+                end
+
+            end
+
+        end
+
+    end
+
+    return nil
+
+end
+
+--------------------------------------------------
+-- ITEM SCANNER
+--------------------------------------------------
+
+local function ScanItems()
+
+    local found = {}
+    local seen = {}
+
+    local folders = {
+        "Items",
+        "ShopItems",
+        "ItemData",
+        "Catalog",
+        "Shop"
+    }
+
+    for _, folderName in ipairs(folders) do
+
+        local folder = RS:FindFirstChild(
+            folderName,
+            true
+        )
+
+        if folder then
+
+            for _, obj in ipairs(folder:GetChildren()) do
+
+                if not seen[obj.Name] then
+
+                    seen[obj.Name] = true
+
+                    table.insert(found, {
+                        Name = obj.Name,
+                        Price = GetPrice(obj),
+                        Object = obj
+                    })
+
+                end
+
+            end
+
+        end
+
+    end
+
+    table.sort(found, function(a, b)
+
+        return a.Name:lower() < b.Name:lower()
+
+    end)
+
+    return found
+
+end
+
+--------------------------------------------------
 -- GUI
 --------------------------------------------------
 
 local Gui = New("ScreenGui", {
-    Name = "PopItBuyerV21",
+    Name = "PopItBuyerV3",
     ResetOnSpawn = false,
     IgnoreGuiInset = true,
     DisplayOrder = 999
 }, PlayerGui)
 
 local Main = New("Frame", {
-    Size = UDim2.fromOffset(380, 520),
-    Position = UDim2.new(0.5, -190, 0.5, -260),
+    Size = UDim2.fromOffset(390, 550),
+    Position = UDim2.new(0.5, -195, 0.5, -275),
     BackgroundColor3 = C.BG,
     BorderSizePixel = 0
 }, Gui)
@@ -163,12 +334,11 @@ Round(Main, 14)
 
 New("UIStroke", {
     Color = C.Purple,
-    Thickness = 1.5,
-    Transparency = 0.2
+    Thickness = 1.5
 }, Main)
 
 --------------------------------------------------
--- MOBILE SCALE
+-- MOBILE SCALING
 --------------------------------------------------
 
 local Scale = New("UIScale", {
@@ -187,8 +357,8 @@ local function UpdateScale()
 
     Scale.Scale = math.min(
         1,
-        size.X / 410,
-        size.Y / 550
+        size.X / 420,
+        size.Y / 580
     )
 
 end
@@ -216,13 +386,13 @@ local Header = New("Frame", {
 Round(Header, 14)
 
 New("TextLabel", {
-    Size = UDim2.new(1, -90, 1, 0),
+    Size = UDim2.new(1, -100, 1, 0),
     Position = UDim2.fromOffset(15, 0),
     BackgroundTransparency = 1,
-    Text = "POP IT | BUYER V2.1",
+    Text = "POP IT | BUYER V3",
     TextColor3 = C.White,
-    TextSize = 16,
     Font = Enum.Font.GothamBold,
+    TextSize = 17,
     TextXAlignment = Enum.TextXAlignment.Left
 }, Header)
 
@@ -233,7 +403,7 @@ local Close = New("TextButton", {
     Text = "X",
     TextColor3 = C.White,
     Font = Enum.Font.GothamBold,
-    TextSize = 15
+    TextSize = 14
 }, Header)
 
 Round(Close, 8)
@@ -243,7 +413,7 @@ Round(Close, 8)
 --------------------------------------------------
 
 local Open = New("TextButton", {
-    Size = UDim2.fromOffset(120, 44),
+    Size = UDim2.fromOffset(125, 45),
     Position = UDim2.new(0, 10, 0.5, -22),
     BackgroundColor3 = C.Purple,
     Text = "ITEM BUYER",
@@ -256,13 +426,17 @@ local Open = New("TextButton", {
 Round(Open, 10)
 
 Close.MouseButton1Click:Connect(function()
+
     Main.Visible = false
     Open.Visible = true
+
 end)
 
 Open.MouseButton1Click:Connect(function()
+
     Main.Visible = true
     Open.Visible = false
+
 end)
 
 --------------------------------------------------
@@ -271,7 +445,7 @@ end)
 
 local Dragging = false
 local DragStart
-local StartPosition
+local StartPos
 local DragInput
 
 Header.InputBegan:Connect(function(input)
@@ -281,7 +455,7 @@ Header.InputBegan:Connect(function(input)
 
         Dragging = true
         DragStart = input.Position
-        StartPosition = Main.Position
+        StartPos = Main.Position
         DragInput = input
 
     end
@@ -302,10 +476,10 @@ UIS.InputChanged:Connect(function(input)
     local delta = input.Position - DragStart
 
     Main.Position = UDim2.new(
-        StartPosition.X.Scale,
-        StartPosition.X.Offset + delta.X,
-        StartPosition.Y.Scale,
-        StartPosition.Y.Offset + delta.Y
+        StartPos.X.Scale,
+        StartPos.X.Offset + delta.X,
+        StartPos.Y.Scale,
+        StartPos.Y.Offset + delta.Y
     )
 
 end)
@@ -327,23 +501,23 @@ local Search = New("TextBox", {
     Size = UDim2.new(1, -24, 0, 40),
     Position = UDim2.fromOffset(12, 62),
     BackgroundColor3 = C.Panel,
-    Text = "",
     PlaceholderText = "Search items...",
     PlaceholderColor3 = C.Gray,
+    Text = "",
     TextColor3 = C.White,
-    TextSize = 14,
     Font = Enum.Font.Gotham,
+    TextSize = 14,
     ClearTextOnFocus = false
 }, Main)
 
-Round(Search, 9)
+Round(Search, 8)
 
 --------------------------------------------------
 -- ITEM LIST
 --------------------------------------------------
 
 local List = New("ScrollingFrame", {
-    Size = UDim2.new(1, -24, 0, 220),
+    Size = UDim2.new(1, -24, 0, 235),
     Position = UDim2.fromOffset(12, 112),
     BackgroundColor3 = C.Panel,
     BorderSizePixel = 0,
@@ -353,7 +527,7 @@ local List = New("ScrollingFrame", {
     CanvasSize = UDim2.fromOffset(0, 0)
 }, Main)
 
-Round(List, 9)
+Round(List, 8)
 
 New("UIListLayout", {
     Padding = UDim.new(0, 5),
@@ -368,30 +542,30 @@ New("UIPadding", {
 }, List)
 
 --------------------------------------------------
--- SELECTED LABEL
+-- SELECTED
 --------------------------------------------------
 
-local SelectedText = New("TextLabel", {
-    Size = UDim2.new(1, -24, 0, 32),
-    Position = UDim2.fromOffset(12, 340),
+local SelectedLabel = New("TextLabel", {
+    Size = UDim2.new(1, -24, 0, 30),
+    Position = UDim2.fromOffset(12, 355),
     BackgroundTransparency = 1,
     Text = "Selected: None",
     TextColor3 = C.White,
-    TextSize = 13,
     Font = Enum.Font.GothamBold,
+    TextSize = 13,
     TextXAlignment = Enum.TextXAlignment.Left,
     TextTruncate = Enum.TextTruncate.AtEnd
 }, Main)
 
 --------------------------------------------------
--- BUTTON HELPER
+-- BUTTON FACTORY
 --------------------------------------------------
 
-local function Button(text, pos, size, color)
+local function Button(text, position, size, color)
 
-    local button = New("TextButton", {
+    local b = New("TextButton", {
         Size = size,
-        Position = pos,
+        Position = position,
         BackgroundColor3 = color,
         Text = text,
         TextColor3 = C.White,
@@ -400,9 +574,9 @@ local function Button(text, pos, size, color)
         BorderSizePixel = 0
     }, Main)
 
-    Round(button, 8)
+    Round(b, 8)
 
-    return button
+    return b
 
 end
 
@@ -412,144 +586,41 @@ end
 
 local BuyButton = Button(
     "BUY SELECTED ITEM",
-    UDim2.fromOffset(12, 380),
+    UDim2.fromOffset(12, 392),
     UDim2.new(1, -24, 0, 42),
     C.Green
 )
 
 local AutoButton = Button(
     "AUTO BUY: OFF",
-    UDim2.fromOffset(12, 430),
+    UDim2.fromOffset(12, 442),
     UDim2.new(0.48, 0, 0, 36),
     C.Button
 )
 
 local RefreshButton = Button(
     "REFRESH",
-    UDim2.new(0.52, 0, 0, 430),
+    UDim2.new(0.52, 0, 0, 442),
     UDim2.new(0.45, 0, 0, 36),
     C.Purple
 )
 
 local DelayButton = Button(
     "DELAY: 2s",
-    UDim2.fromOffset(12, 475),
-    UDim2.new(1, -24, 0, 32),
+    UDim2.fromOffset(12, 486),
+    UDim2.new(0.48, 0, 0, 36),
+    C.Button
+)
+
+local DebugButton = Button(
+    "SCAN REMOTES",
+    UDim2.new(0.52, 0, 0, 486),
+    UDim2.new(0.45, 0, 0, 36),
     C.Button
 )
 
 --------------------------------------------------
--- IMPROVED PRICE DETECTION
---------------------------------------------------
-
-local PriceNames = {
-    "Price",
-    "price",
-    "Cost",
-    "cost",
-    "Coins",
-    "Cash",
-    "Money",
-    "Amount",
-    "BuyPrice",
-    "PurchasePrice"
-}
-
-local function GetPrice(object)
-
-    -- Check attributes
-
-    for _, name in ipairs(PriceNames) do
-
-        local value = object:GetAttribute(name)
-
-        if typeof(value) == "number"
-        and value >= 0 then
-            return value
-        end
-
-    end
-
-    -- Check descendants
-
-    for _, child in ipairs(object:GetDescendants()) do
-
-        for _, name in ipairs(PriceNames) do
-
-            if child.Name == name then
-
-                if child:IsA("NumberValue")
-                or child:IsA("IntValue") then
-
-                    if child.Value >= 0 then
-                        return child.Value
-                    end
-
-                end
-
-            end
-
-        end
-
-    end
-
-    return nil
-
-end
-
---------------------------------------------------
--- ITEM SCANNER
---------------------------------------------------
-
-local function ScanItems()
-
-    local found = {}
-    local seen = {}
-
-    local containers = {
-        "Items",
-        "ShopItems",
-        "ItemData",
-        "Catalog",
-        "Shop"
-    }
-
-    for _, name in ipairs(containers) do
-
-        local folder = RS:FindFirstChild(name, true)
-
-        if folder then
-
-            for _, item in ipairs(folder:GetChildren()) do
-
-                if not seen[item.Name] then
-
-                    seen[item.Name] = true
-
-                    table.insert(found, {
-                        Name = item.Name,
-                        Price = GetPrice(item),
-                        Object = item
-                    })
-
-                end
-
-            end
-
-        end
-
-    end
-
-    table.sort(found, function(a, b)
-        return a.Name:lower() < b.Name:lower()
-    end)
-
-    return found
-
-end
-
---------------------------------------------------
--- RENDER ITEMS
+-- RENDER
 --------------------------------------------------
 
 local Render
@@ -560,7 +631,9 @@ Render = function()
 
         if child:IsA("TextButton")
         or child.Name == "EmptyLabel" then
+
             child:Destroy()
+
         end
 
     end
@@ -574,33 +647,33 @@ Render = function()
 
             count += 1
 
-            local priceText = item.Price ~= nil
+            local price = item.Price ~= nil
                 and tostring(item.Price)
                 or "Price N/A"
 
-            local button = New("TextButton", {
+            local b = New("TextButton", {
                 Size = UDim2.new(1, -2, 0, 37),
                 BackgroundColor3 =
                     Selected == item and C.Purple
                     or C.Button,
-                Text = "  " .. item.Name .. " | " .. priceText,
+                Text = "  " .. item.Name .. " | " .. price,
                 TextColor3 = C.White,
-                TextSize = 13,
                 Font = Enum.Font.Gotham,
+                TextSize = 13,
                 TextXAlignment = Enum.TextXAlignment.Left,
                 TextTruncate = Enum.TextTruncate.AtEnd,
                 BorderSizePixel = 0
             }, List)
 
-            Round(button, 7)
+            Round(b, 7)
 
-            button.MouseButton1Click:Connect(function()
+            b.MouseButton1Click:Connect(function()
 
                 Selected = item
 
-                SelectedText.Text =
+                SelectedLabel.Text =
                     "Selected: " .. item.Name
-                    .. " | " .. priceText
+                    .. " | " .. price
 
                 Render()
 
@@ -618,8 +691,8 @@ Render = function()
             BackgroundTransparency = 1,
             Text = "No items found",
             TextColor3 = C.Gray,
-            TextSize = 14,
-            Font = Enum.Font.Gotham
+            Font = Enum.Font.Gotham,
+            TextSize = 14
         }, List)
 
     end
@@ -642,36 +715,31 @@ local function Refresh()
         for _, item in ipairs(Items) do
 
             if item.Name == oldName then
+
                 Selected = item
                 break
+
             end
 
         end
 
     end
 
-    if Selected then
-
-        SelectedText.Text =
-            "Selected: " .. Selected.Name
-
-    else
-
-        SelectedText.Text = "Selected: None"
-
-    end
+    SelectedLabel.Text = Selected
+        and ("Selected: " .. Selected.Name)
+        or "Selected: None"
 
     Render()
 
     Notify(
-        "Pop It Buyer V2.1",
-        "Items found: " .. tostring(#Items)
+        "Item Buyer V3",
+        "Found " .. #Items .. " items"
     )
 
 end
 
 --------------------------------------------------
--- BALANCE DETECTION
+-- BALANCE
 --------------------------------------------------
 
 local function GetBalance()
@@ -682,14 +750,14 @@ local function GetBalance()
         return nil
     end
 
-    local currencies = {
+    local names = {
         "Cash",
         "Coins",
         "Money",
         "Credits"
     }
 
-    for _, name in ipairs(currencies) do
+    for _, name in ipairs(names) do
 
         local value = stats:FindFirstChild(name)
 
@@ -712,20 +780,22 @@ end
 -- PURCHASE ADAPTER
 --------------------------------------------------
 
--- Replace with confirmed game purchase logic.
+-- The real purchase mechanism must be verified.
+-- Scanning remote names alone is insufficient.
 --
--- Return:
+-- Expected:
 -- true, "Success"
 -- false, "Reason"
 
 local function PurchaseAdapter(item)
 
-    return false, "Purchase system not configured"
+    return false,
+        "Purchase remote not identified. Use SCAN REMOTES."
 
 end
 
 --------------------------------------------------
--- BUY SYSTEM
+-- BUY
 --------------------------------------------------
 
 local function Buy()
@@ -736,22 +806,14 @@ local function Buy()
 
     if not Selected then
 
-        Notify(
-            "Item Buyer",
-            "Select an item first"
-        )
-
+        Notify("Item Buyer", "Select an item first")
         return
 
     end
 
     if Selected.Price == nil then
 
-        Notify(
-            "Purchase Failed",
-            "Price not available"
-        )
-
+        Notify("Purchase Failed", "Price not available")
         return
 
     end
@@ -761,28 +823,28 @@ local function Buy()
     if balance ~= nil
     and balance < Selected.Price then
 
-        Notify(
-            "Purchase Failed",
-            "Not enough currency"
-        )
-
+        Notify("Purchase Failed", "Not enough currency")
         return
 
     end
 
-    if os.clock() - LastBuy < Config.AutoBuyDelay then
+    local now = os.clock()
+
+    if now - LastBuy < Config.PurchaseCooldown then
         return
     end
 
     Buying = true
-    LastBuy = os.clock()
+    LastBuy = now
 
     BuyButton.Text = "BUYING..."
 
     local item = Selected
 
     local ok, success, message = pcall(function()
+
         return PurchaseAdapter(item)
+
     end)
 
     Buying = false
@@ -790,21 +852,14 @@ local function Buy()
 
     if not ok then
 
-        Notify(
-            "Purchase Error",
-            tostring(success)
-        )
-
+        Notify("Purchase Error", tostring(success))
         return
 
     end
 
     if success == true then
 
-        Notify(
-            "Purchase Successful",
-            item.Name
-        )
+        Notify("Purchase Successful", item.Name)
 
     else
 
@@ -818,12 +873,20 @@ local function Buy()
 end
 
 --------------------------------------------------
--- BUY BUTTON
+-- EVENTS
 --------------------------------------------------
 
 BuyButton.MouseButton1Click:Connect(function()
+
     task.spawn(Buy)
+
 end)
+
+RefreshButton.MouseButton1Click:Connect(Refresh)
+
+DebugButton.MouseButton1Click:Connect(PrintDiagnostics)
+
+Search:GetPropertyChangedSignal("Text"):Connect(Render)
 
 --------------------------------------------------
 -- AUTO BUY
@@ -833,17 +896,13 @@ AutoButton.MouseButton1Click:Connect(function()
 
     AutoBuy = not AutoBuy
 
-    if AutoBuy then
+    AutoButton.Text = AutoBuy
+        and "AUTO BUY: ON"
+        or "AUTO BUY: OFF"
 
-        AutoButton.Text = "AUTO BUY: ON"
-        AutoButton.BackgroundColor3 = C.Green
-
-    else
-
-        AutoButton.Text = "AUTO BUY: OFF"
-        AutoButton.BackgroundColor3 = C.Button
-
-    end
+    AutoButton.BackgroundColor3 = AutoBuy
+        and C.Green
+        or C.Button
 
 end)
 
@@ -852,7 +911,9 @@ task.spawn(function()
     while Running do
 
         if AutoBuy and Selected and not Buying then
+
             Buy()
+
         end
 
         task.wait(Config.AutoBuyDelay)
@@ -862,7 +923,7 @@ task.spawn(function()
 end)
 
 --------------------------------------------------
--- DELAY BUTTON
+-- DELAY
 --------------------------------------------------
 
 DelayButton.MouseButton1Click:Connect(function()
@@ -879,22 +940,14 @@ DelayButton.MouseButton1Click:Connect(function()
 end)
 
 --------------------------------------------------
--- EVENTS
---------------------------------------------------
-
-RefreshButton.MouseButton1Click:Connect(Refresh)
-
-Search:GetPropertyChangedSignal("Text"):Connect(Render)
-
---------------------------------------------------
 -- START
 --------------------------------------------------
 
 Refresh()
 
 Notify(
-    "POP IT BUYER V2.1",
+    "POP IT BUYER V3",
     "GUI loaded successfully!"
 )
 
-print("[POP IT BUYER V2.1] Loaded")
+print("[POP IT BUYER V3] Loaded")
