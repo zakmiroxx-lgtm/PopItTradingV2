@@ -1,11 +1,11 @@
 --[[
-    POP IT TRADING | ULTIMATE HUB V7.1
+    POP IT TRADING | ULTIMATE HUB V7.2
     PlaceId: 7346416636
 
     FEATURES:
-    - Dark Mode
+    - Dark Mode GUI
     - Mobile / PC
-    - Draggable GUI
+    - Draggable Window
     - Item Buyer
     - Auto Buy
     - Search / Refresh
@@ -15,7 +15,7 @@
     - Custom Local Codes
     - Pinata Hit / Auto Hit
     - Bubble Pop / Auto Pop
-    - Adjustable Delays
+    - Custom Delay Input (MS)
     - Notifications
 ]]
 
@@ -33,7 +33,7 @@ local Player = Players.LocalPlayer
 local PlayerGui = Player:WaitForChild("PlayerGui")
 
 if game.PlaceId ~= 7346416636 then
-    warn("[V7.1] Wrong game!")
+    warn("[V7.2] Wrong game!")
     return
 end
 
@@ -67,8 +67,9 @@ local Config = {
     BubbleDelayMS = 500,
 
     MinActionDelay = 0.1,
+    MaxActionDelayMS = 60000,
 
-    SaveFile = "PopItCustomCodesV71.json"
+    SaveFile = "PopItCustomCodesV72.json"
 }
 
 --------------------------------------------------
@@ -78,13 +79,8 @@ local Config = {
 local Running = true
 
 local AutoBuy = false
-local AutoHit = false
-local AutoPop = false
-
 local Buying = false
 local ClaimBusy = false
-local HitBusy = false
-local PopBusy = false
 
 local Items = {}
 local Selected = nil
@@ -93,24 +89,22 @@ local FoundCodes = {}
 local SelectedFoundCode = nil
 local CustomCodes = {}
 
-local LastBuy = 0
-local LastClaim = 0
-local LastCode = 0
-local LastHit = 0
-local LastPop = 0
+local LastBuy = -math.huge
+local LastClaim = -math.huge
+local LastCode = -math.huge
 
-local HitCount = 0
-local PopCount = 0
+local StopActions = {}
 
 if Env then
 
     Env.PopItHubStop = function()
 
         Running = false
-
         AutoBuy = false
-        AutoHit = false
-        AutoPop = false
+
+        for _, stop in ipairs(StopActions) do
+            pcall(stop)
+        end
 
     end
 
@@ -478,7 +472,7 @@ end
 --------------------------------------------------
 
 local Gui = New("ScreenGui", {
-    Name = "PopItUltimateV71",
+    Name = "PopItUltimateV72",
 
     ResetOnSpawn = false,
     IgnoreGuiInset = true,
@@ -555,7 +549,7 @@ local Header = New("Frame", {
 Round(Header, 14)
 
 local Title = Label(
-    "POP IT | ULTIMATE V7.1",
+    "POP IT | ULTIMATE V7.2",
     Header,
 
     UDim2.fromOffset(15, 0),
@@ -1675,7 +1669,7 @@ CreateCodeButton.MouseButton1Click:Connect(function()
 end)
 
 --------------------------------------------------
--- SHARED AUTO ACTION UI
+-- SHARED AUTO ACTION UI V7.2
 --------------------------------------------------
 
 local function CreateActionPage(
@@ -1686,16 +1680,19 @@ local function CreateActionPage(
     getRemote,
     initialDelay,
     minDelay,
-    maxDelay,
-    delayStep
+    maxDelay
 )
 
     local enabled = false
     local busy = false
 
     local delayMS = initialDelay
-    local lastAction = 0
+    local lastAction = -math.huge
     local requestCount = 0
+
+    --------------------------------------------------
+    -- TITLE
+    --------------------------------------------------
 
     Label(
         title,
@@ -1719,6 +1716,10 @@ local function CreateActionPage(
         13
     )
 
+    --------------------------------------------------
+    -- MANUAL ACTION
+    --------------------------------------------------
+
     local ActionButton = Button(
         actionName,
         page,
@@ -1729,6 +1730,10 @@ local function CreateActionPage(
 
         C.Green
     )
+
+    --------------------------------------------------
+    -- AUTO BUTTON
+    --------------------------------------------------
 
     local AutoButton = Button(
         "AUTO: OFF",
@@ -1741,44 +1746,89 @@ local function CreateActionPage(
         C.Button
     )
 
-    local DelayLabel = Label(
-        "DELAY: " .. delayMS .. " ms",
+    --------------------------------------------------
+    -- CUSTOM DELAY INPUT
+    --------------------------------------------------
+
+    Label(
+        "CUSTOM DELAY (MS)",
         page,
 
-        UDim2.fromOffset(0, 250),
+        UDim2.fromOffset(0, 245),
 
-        UDim2.new(1, 0, 0, 35),
+        UDim2.new(1, 0, 0, 30),
 
         15
     )
 
-    local Minus = Button(
-        "-" .. delayStep .. " ms",
+    local DelayInput = TextBox(
+        "Enter delay in milliseconds...",
         page,
 
-        UDim2.fromOffset(0, 295),
+        UDim2.fromOffset(0, 280),
 
-        UDim2.new(0.48, 0, 0, 40),
-
-        C.Purple
+        UDim2.new(1, 0, 0, 42)
     )
 
-    local Plus = Button(
-        "+" .. delayStep .. " ms",
-        page,
+    DelayInput.Text = tostring(delayMS)
 
-        UDim2.new(0.52, 0, 0, 295),
+    DelayInput.FocusLost:Connect(function()
 
-        UDim2.new(0.48, 0, 0, 40),
+        local value = tonumber(DelayInput.Text)
 
-        C.Purple
-    )
+        if not value
+        or value ~= value
+        or value == math.huge
+        or value == -math.huge then
+
+            Notify(
+                title,
+                "Enter a valid number"
+            )
+
+            DelayInput.Text = tostring(delayMS)
+
+            return
+
+        end
+
+        if value < 0 then
+
+            Notify(
+                title,
+                "Delay cannot be negative"
+            )
+
+            DelayInput.Text = tostring(delayMS)
+
+            return
+
+        end
+
+        delayMS = math.clamp(
+            math.floor(value),
+            minDelay,
+            maxDelay
+        )
+
+        DelayInput.Text = tostring(delayMS)
+
+        Notify(
+            title,
+            "Delay set to " .. delayMS .. " ms"
+        )
+
+    end)
+
+    --------------------------------------------------
+    -- COUNTER
+    --------------------------------------------------
 
     local Counter = Label(
         "Requests sent: 0",
         page,
 
-        UDim2.fromOffset(0, 350),
+        UDim2.fromOffset(0, 340),
 
         UDim2.new(1, 0, 0, 40),
 
@@ -1789,12 +1839,23 @@ local function CreateActionPage(
         "RESET COUNTER",
         page,
 
-        UDim2.fromOffset(0, 400),
+        UDim2.fromOffset(0, 395),
 
         UDim2.new(1, 0, 0, 38),
 
         C.Button
     )
+
+    ResetButton.MouseButton1Click:Connect(function()
+
+        requestCount = 0
+        Counter.Text = "Requests sent: 0"
+
+    end)
+
+    --------------------------------------------------
+    -- AUTO BUTTON UPDATE
+    --------------------------------------------------
 
     local function UpdateAuto()
 
@@ -1808,41 +1869,9 @@ local function CreateActionPage(
 
     end
 
-    local function UpdateDelay()
-
-        DelayLabel.Text =
-            "DELAY: " .. delayMS .. " ms"
-
-    end
-
-    Minus.MouseButton1Click:Connect(function()
-
-        delayMS = math.max(
-            minDelay,
-            delayMS - delayStep
-        )
-
-        UpdateDelay()
-
-    end)
-
-    Plus.MouseButton1Click:Connect(function()
-
-        delayMS = math.min(
-            maxDelay,
-            delayMS + delayStep
-        )
-
-        UpdateDelay()
-
-    end)
-
-    ResetButton.MouseButton1Click:Connect(function()
-
-        requestCount = 0
-        Counter.Text = "Requests sent: 0"
-
-    end)
+    --------------------------------------------------
+    -- ACTION FUNCTION
+    --------------------------------------------------
 
     local function PerformAction()
 
@@ -1907,11 +1936,19 @@ local function CreateActionPage(
 
     end
 
+    --------------------------------------------------
+    -- MANUAL BUTTON EVENT
+    --------------------------------------------------
+
     ActionButton.MouseButton1Click:Connect(function()
 
         PerformAction()
 
     end)
+
+    --------------------------------------------------
+    -- AUTO TOGGLE
+    --------------------------------------------------
 
     AutoButton.MouseButton1Click:Connect(function()
 
@@ -1927,6 +1964,10 @@ local function CreateActionPage(
         )
 
     end)
+
+    --------------------------------------------------
+    -- AUTO LOOP
+    --------------------------------------------------
 
     task.spawn(function()
 
@@ -1944,20 +1985,31 @@ local function CreateActionPage(
 
     end)
 
-    return function()
+    --------------------------------------------------
+    -- STOP FUNCTION
+    --------------------------------------------------
+
+    local function Stop()
 
         enabled = false
-        UpdateAuto()
+
+        if AutoButton.Parent then
+            UpdateAuto()
+        end
 
     end
+
+    table.insert(StopActions, Stop)
+
+    return Stop
 
 end
 
 --------------------------------------------------
--- PINATA
+-- PINATA PAGE
 --------------------------------------------------
 
-local StopPinata = CreateActionPage(
+CreateActionPage(
     Pages.PINATA,
 
     "PINATA AUTO HIT",
@@ -1971,16 +2023,15 @@ local StopPinata = CreateActionPage(
     Config.HitDelayMS,
 
     0,
-    100,
 
-    25
+    Config.MaxActionDelayMS
 )
 
 --------------------------------------------------
--- BUBBLE WRAP
+-- BUBBLE PAGE
 --------------------------------------------------
 
-local StopBubble = CreateActionPage(
+CreateActionPage(
     Pages.BUBBLE,
 
     "BUBBLE WRAP AUTO POP",
@@ -2000,10 +2051,9 @@ local StopBubble = CreateActionPage(
 
     Config.BubbleDelayMS,
 
-    100,
-    1000,
+    0,
 
-    100
+    Config.MaxActionDelayMS
 )
 
 --------------------------------------------------
@@ -2019,8 +2069,8 @@ SwitchTab("BUYER")
 RefreshItems()
 
 Notify(
-    "POP IT ULTIMATE V7.1",
+    "POP IT ULTIMATE V7.2",
     "Hub loaded successfully!"
 )
 
-print("[POP IT ULTIMATE V7.1] Loaded")
+print("[POP IT ULTIMATE V7.2] Loaded")
